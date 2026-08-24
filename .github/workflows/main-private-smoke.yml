@@ -6,8 +6,14 @@ on:
 
 jobs:
   smoke:
-    name: Checkout action smoke test
+    name: Preinstalled Windows toolchain probe
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
-      - run: echo "checkout-action-started"
+      - shell: pwsh
+        run: |
+          Write-Host "Node:"; node --version
+          Write-Host "npm:"; npm --version
+          Write-Host "Python:"; python --version
+          Write-Host "Git:"; git --version
+          Write-Host "GitHub CLI:"; gh --version
+          Write-Host "MSBuild:"; where.exe msbuild
