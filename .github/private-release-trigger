@@ -1,4 +1,4 @@
 main_private Windows private release trigger
 source workflow: .github/workflows/main-private-win-nsis.yml
 diagnostic mode: contents-api snapshot enabled
-sequence: 2
+sequence: 3
