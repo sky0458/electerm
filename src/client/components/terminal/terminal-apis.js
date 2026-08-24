@@ -6,7 +6,8 @@ import fetch from '../../common/fetch-from-server'
 
 const authenticationFailurePatterns = [
   /all configured authentication methods failed/i,
-  /authentication failed/i,
+  /authentication (?:failed|failure)/i,
+  /unable to authenticate/i,
   /permission denied/i,
   /too many authentication failures/i,
   /no authentication methods available/i
