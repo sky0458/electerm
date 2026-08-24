@@ -1,5 +1,7 @@
 # Private branch Windows release workflow.
-# Build steps intentionally mirror upstream .github/workflows/win-nsis.yml.
+# The build sequence follows upstream Windows NSIS packaging, but publishing is
+# explicitly disabled inside electron-builder so this fork never targets the
+# upstream electerm/electerm repository by package metadata.
 
 name: main-private-win-nsis
 
@@ -9,59 +11,79 @@ on:
 
 permissions:
   contents: write
+  statuses: write
 
 jobs:
   build:
-
     runs-on: windows-2022
-    environment: build
     if: ${{ contains(github.event.head_commit.message, '[private release]') && !contains(github.event.head_commit.message, '[skip build]') && !contains(github.event.head_commit.message, '[skip ci]') && !contains(github.event.head_commit.message, '[skip win]') && !contains(github.event.head_commit.message, '[skip nsis]') }}
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Use Node.js 24.x
+    - id: checkout
+      uses: actions/checkout@v4
+
+    - id: node
+      name: Use Node.js 24.x
       uses: actions/setup-node@v4
       with:
         node-version: 24.x
 
-    - uses: actions/setup-python@v5
+    - id: python
+      name: Use Python 3.11 x64
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.7'
+        python-version: '3.11'
         architecture: 'x64'
-    - run: npm config set legacy-peer-deps true
-    - run: npm install -g node-gyp
 
-    - run: npm install -g yarn
-    - run: npm un node-pty serialport
-    - run: npm i
-    - run: npm i -S -E node-pty@1.1.0-beta14
-    - run: npm i -S -E serialport@13.0.0
+    - id: npm_config
+      run: npm config set legacy-peer-deps true
 
-    - name: Install R2 dependencies if needed
-      if: ${{ contains(github.event.head_commit.message, '[r2]') }}
-      run: npm i -D @aws-sdk/client-s3
+    - id: node_gyp
+      run: npm install -g node-gyp@12.2.0
 
-    - run: npm run b
+    - id: yarn
+      run: npm install -g yarn
 
-    - name: Run pb
+    - id: uninstall_native
+      run: npm un node-pty serialport
+
+    - id: npm_install
+      run: npm i
+
+    - id: node_pty
+      run: npm i -S -E node-pty@1.1.0-beta14
+
+    - id: serialport
+      run: npm i -S -E serialport@13.0.0
+
+    - id: assets
+      name: Build application assets
+      run: npm run b
+
+    - id: pb
+      name: Prepare electron-builder config
       run: npm run pb
 
-    - name: build
+    - id: package
+      name: Build Windows x64 NSIS installer without publisher
       env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        BUILD_NUMBER: ${{ secrets.BUILD_NUMBER }}
-        WORKFLOW_NAME: ${{ github.workflow }}
-        CF_R2_ACCOUNT_ID: ${{ secrets.CF_R2_ACCOUNT_ID }}
-        CF_R2_BUCKET: ${{ secrets.CF_R2_BUCKET }}
-        CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-        CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+        BUILD_NUMBER: ${{ github.run_number }}
+        WORKFLOW_NAME: private-windows
+      run: node build/bin/build-win-nsis-private
 
-      run: node build/bin/build-win-nsis
+    - id: artifact
+      name: Upload Windows installer artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: electerm-private-windows-x64-${{ github.run_number }}
+        path: dist/*win-x64-installer.exe
+        if-no-files-found: error
 
-    - name: Publish private Windows release
+    - id: release
+      name: Publish private Windows release
       shell: pwsh
       env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_TOKEN: ${{ github.token }}
       run: |
         $pkg = Get-Content package.json -Raw | ConvertFrom-Json
         $version = $pkg.version
@@ -73,6 +95,7 @@ jobs:
         }
 
         gh release create $tag $asset.FullName `
+          --repo "${{ github.repository }}" `
           --target "${{ github.sha }}" `
           --title "electerm $version Private - Windows 10+ x64" `
           --notes "Windows-only private build from main_private. Includes the enterprise SSH/SFTP safety changes and disabled application update checks." `
@@ -81,3 +104,18 @@ jobs:
         if ($LASTEXITCODE -ne 0) {
           exit $LASTEXITCODE
         }
+
+    - name: Publish diagnostic commit status
+      if: always()
+      continue-on-error: true
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        $state = if ("${{ job.status }}" -eq "success") { "success" } else { "failure" }
+        $desc = "py=${{ steps.python.outcome }} npm=${{ steps.npm_install.outcome }} assets=${{ steps.assets.outcome }} pb=${{ steps.pb.outcome }} pkg=${{ steps.package.outcome }} rel=${{ steps.release.outcome }}"
+        gh api --method POST "repos/${{ github.repository }}/statuses/${{ github.sha }}" `
+          -f state=$state `
+          -f context="main-private-win-nsis" `
+          -f description=$desc `
+          -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
