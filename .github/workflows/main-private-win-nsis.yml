@@ -3,6 +3,11 @@
 # workflow intentionally uses only commands already available on the hosted
 # Windows runner. A PR into main_private builds only; changing the release
 # trigger file on main_private builds and publishes the prerelease.
+#
+# Release publishing uses PRIVATE_RELEASE_TOKEN instead of GITHUB_TOKEN because
+# GitHub returns HTTP 403 for release creation with the workflow integration
+# token in this fork. PRIVATE_RELEASE_TOKEN should be a fine-grained PAT scoped
+# only to this repository with Contents: Read and write permission.
 
 name: main-private-win-nsis
 
@@ -24,6 +29,17 @@ jobs:
     runs-on: windows-2022
 
     steps:
+      - name: Verify private release token
+        if: ${{ github.event_name == 'push' }}
+        shell: pwsh
+        env:
+          PRIVATE_RELEASE_TOKEN: ${{ secrets.PRIVATE_RELEASE_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PRIVATE_RELEASE_TOKEN)) {
+            throw 'Missing Actions secret PRIVATE_RELEASE_TOKEN. Add a fine-grained PAT for this repository with Contents: Read and write permission.'
+          }
+          Write-Host 'PRIVATE_RELEASE_TOKEN is configured.'
+
       - name: Clone source without checkout action
         shell: pwsh
         run: |
@@ -90,7 +106,7 @@ jobs:
         shell: pwsh
         working-directory: source
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PRIVATE_RELEASE_TOKEN }}
         run: |
           $pkg = Get-Content package.json -Raw | ConvertFrom-Json
           $version = $pkg.version
