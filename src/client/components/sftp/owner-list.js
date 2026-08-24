@@ -1,5 +1,10 @@
 /**
- * get owner group/users list of local and remote sessions
+ * get owner group/users list for local sessions.
+ *
+ * Remote SFTP sessions deliberately do not enumerate system accounts. The
+ * SFTP protocol already provides numeric uid/gid values, and querying the
+ * complete remote account database (for example via /etc/passwd or getent)
+ * can be flagged as account-discovery activity by enterprise monitoring.
  *
  * for mac list users: `dscl . -list /Users UniqueID`
  * for mac list groups: `dscl . list /Groups PrimaryGroupID`
@@ -9,7 +14,6 @@
  * for windows list groups: do not know yet
  */
 
-import { runCmd } from '../terminal/terminal-apis'
 import { isWin, isMac } from '../../common/constants'
 
 function parseNames (str) {
@@ -26,21 +30,11 @@ function parseNames (str) {
 const linuxListUser = 'cat /etc/passwd'
 const linuxListGroup = 'cat /etc/group'
 
-export async function remoteListUsers (pid) {
-  const users = await runCmd(pid, linuxListUser)
-    .catch(console.error)
-  if (users) {
-    return parseNames(users)
-  }
+export async function remoteListUsers () {
   return {}
 }
 
-export async function remoteListGroups (pid) {
-  const groups = await runCmd(pid, linuxListGroup)
-    .catch(console.error)
-  if (groups) {
-    return parseNames(groups)
-  }
+export async function remoteListGroups () {
   return {}
 }
 

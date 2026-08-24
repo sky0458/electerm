@@ -6,6 +6,9 @@ import '../css/mobile.styl'
 import { get as _get } from 'lodash-es'
 import '../common/pre'
 
+// Corporate build: disable application version checks and hide update-check UI.
+window.et.disableUpgradeCheck = true
+
 const { isDev } = window.et
 const { version } = window.pre.packInfo
 

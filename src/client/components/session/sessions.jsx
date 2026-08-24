@@ -4,13 +4,31 @@ import Session from './session.jsx'
 import { pick } from 'lodash-es'
 import classNames from 'classnames'
 import {
-  termControlHeight
+  termControlHeight,
+  statusMap
 } from '../../common/constants.js'
 import pixed from '../layout/pixed'
+import { refs } from '../common/ref'
 
 export default class Sessions extends Component {
   // Function to reload a tab using store.reloadTab
   reloadTab = (tab) => {
+    const failures = window.store.autoReconnectAuthenticationFailures
+    const authFailure = failures?.get(tab.id)
+    if (authFailure) {
+      failures.delete(tab.id)
+      if (!this.props.config.autoReconnectOnAuthenticationFailure) {
+        window.store.updateTab(tab.id, {
+          status: statusMap.error
+        })
+        refs.get('term-' + tab.id)?.handleError({
+          message: authFailure.message,
+          from: tab.from || 'bookmarks',
+          srcId: tab.srcId
+        })
+        return
+      }
+    }
     window.store.updateTab(tab.id, tab)
     window.store.reloadTab(tab.id)
   }
