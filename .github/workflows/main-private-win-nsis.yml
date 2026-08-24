@@ -1,12 +1,16 @@
 # Windows-only private release pipeline for main_private.
-# A pull request into main_private runs only the build job for diagnostics.
-# A marked push to main_private runs build + private GitHub prerelease.
+# This repository's Allowed actions policy rejects `uses:` steps, so this
+# workflow intentionally uses only commands already available on the hosted
+# Windows runner. A PR into main_private builds only; changing the release
+# trigger file on main_private builds and publishes the prerelease.
 
 name: main-private-win-nsis
 
 on:
   push:
     branches: [ main_private ]
+    paths:
+      - '.github/private-release-trigger'
   pull_request:
     branches: [ main_private ]
 
@@ -15,84 +19,80 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  windows:
     name: Build Windows NSIS
     runs-on: windows-2022
-    permissions:
-      contents: read
-    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[private release]') && !contains(github.event.head_commit.message, '[skip build]') && !contains(github.event.head_commit.message, '[skip ci]') && !contains(github.event.head_commit.message, '[skip win]') && !contains(github.event.head_commit.message, '[skip nsis]')) }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Clone source without checkout action
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            $branch = $env:GITHUB_HEAD_REF
+          } else {
+            $branch = $env:GITHUB_REF_NAME
+          }
+          Write-Host "Cloning branch: $branch"
+          git clone --depth 1 --branch "$branch" "https://github.com/${{ github.repository }}.git" source
+          git -C source rev-parse HEAD
 
-      - name: Use Node.js 24.x
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24.x
+      - name: Show preinstalled toolchain
+        shell: pwsh
+        run: |
+          node --version
+          npm --version
+          python --version
+          git --version
+          gh --version
 
-      - name: Use Python 3.11 x64
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          architecture: 'x64'
-
-      - name: Configure npm
-        run: npm config set legacy-peer-deps true
-
-      - name: Install Yarn required by package preparation
-        run: npm install -g yarn
+      - name: Configure npm and install Yarn
+        shell: pwsh
+        run: |
+          npm config set legacy-peer-deps true
+          npm install -g yarn
 
       - name: Install project dependencies
+        shell: pwsh
+        working-directory: source
         run: npm i
 
       - name: Build application assets
+        shell: pwsh
+        working-directory: source
         run: npm run b
 
       - name: Prepare electron-builder config
+        shell: pwsh
+        working-directory: source
         run: npm run pb
 
       - name: Build Windows x64 NSIS installer
+        shell: pwsh
+        working-directory: source
         env:
           BUILD_NUMBER: ${{ github.run_number }}
           WORKFLOW_NAME: private-windows
-        run: node build/bin/build-win-nsis-private
-
-      - name: Upload Windows installer artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: electerm-private-windows-x64
-          path: dist/*win-x64-installer.exe
-          if-no-files-found: error
-
-  release:
-    name: Publish Private Release
-    needs: build
-    if: ${{ github.event_name == 'push' }}
-    runs-on: windows-2022
-    permissions:
-      contents: write
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download Windows installer artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: electerm-private-windows-x64
-          path: release-assets
+        run: |
+          node build/bin/build-win-nsis-private
+          $asset = Get-ChildItem -Path dist -Filter '*win-x64-installer.exe' | Select-Object -First 1
+          if (-not $asset) {
+            throw 'Windows x64 NSIS installer was not produced'
+          }
+          Write-Host "Built installer: $($asset.FullName)"
 
       - name: Publish Windows-only prerelease
+        if: ${{ github.event_name == 'push' }}
         shell: pwsh
+        working-directory: source
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $pkg = Get-Content package.json -Raw | ConvertFrom-Json
           $version = $pkg.version
           $tag = "private-v$version-win10plus-r${{ github.run_number }}"
-          $asset = Get-ChildItem -Path release-assets -Filter "*win-x64-installer.exe" | Select-Object -First 1
-
+          $asset = Get-ChildItem -Path dist -Filter '*win-x64-installer.exe' | Select-Object -First 1
           if (-not $asset) {
-            throw "Windows x64 NSIS installer not found in downloaded artifact"
+            throw 'Windows x64 NSIS installer not found in dist/'
           }
 
           gh release create $tag $asset.FullName `
