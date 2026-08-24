@@ -1,4 +1,4 @@
 main_private Windows private release trigger
 source workflow: .github/workflows/main-private-win-nsis.yml
 mode: push release
-sequence: 4
+sequence: 5
