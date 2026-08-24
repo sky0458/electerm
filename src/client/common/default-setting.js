@@ -27,7 +27,7 @@ export default {
   terminalBackgroundText: '',
   terminalBackgroundTextSize: 48,
   terminalBackgroundTextColor: '#ffffff',
-  terminalBackgroundTextFontFamily: 'Maple Mono, monospace',
+  terminalBackgroundTextFontFamily: 'Maple Mono',
   rendererType: 'dom',
   terminalType: 'xterm-256color',
   keepaliveCountMax: 10,
