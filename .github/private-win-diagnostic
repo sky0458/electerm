@@ -1,0 +1,2 @@
+Diagnostic-only PR for main_private Windows NSIS build.
+No release job runs on pull_request events.
