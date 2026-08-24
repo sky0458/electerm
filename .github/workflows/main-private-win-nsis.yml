@@ -135,3 +135,49 @@ jobs:
           -f context="main-private-win-nsis" `
           -f description=$desc `
           -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+    - name: Persist diagnostic snapshot
+      if: always()
+      continue-on-error: true
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        $payload = [ordered]@{
+          status = "${{ job.status }}"
+          runId = "${{ github.run_id }}"
+          runNumber = "${{ github.run_number }}"
+          sourceSha = "${{ github.sha }}"
+          node = "${{ steps.node.outcome }}"
+          python = "${{ steps.python.outcome }}"
+          npmConfig = "${{ steps.npm_config.outcome }}"
+          nodeGyp = "${{ steps.node_gyp.outcome }}"
+          yarn = "${{ steps.yarn.outcome }}"
+          uninstallNative = "${{ steps.uninstall_native.outcome }}"
+          npmInstall = "${{ steps.npm_install.outcome }}"
+          nodePty = "${{ steps.node_pty.outcome }}"
+          serialport = "${{ steps.serialport.outcome }}"
+          assets = "${{ steps.assets.outcome }}"
+          pb = "${{ steps.pb.outcome }}"
+          package = "${{ steps.package.outcome }}"
+          artifact = "${{ steps.artifact.outcome }}"
+          release = "${{ steps.release.outcome }}"
+          updatedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
+        } | ConvertTo-Json
+
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
+        $b64 = [Convert]::ToBase64String($bytes)
+        $path = "PRIVATE_RELEASE_DIAGNOSTIC.json"
+        $sha = gh api "repos/${{ github.repository }}/contents/$path?ref=main_private" --jq '.sha' 2>$null
+        if ($LASTEXITCODE -eq 0 -and $sha) {
+          gh api --method PUT "repos/${{ github.repository }}/contents/$path" `
+            -f message="ci: record private Windows diagnostic [skip ci]" `
+            -f content=$b64 `
+            -f branch="main_private" `
+            -f sha=$sha
+        } else {
+          gh api --method PUT "repos/${{ github.repository }}/contents/$path" `
+            -f message="ci: record private Windows diagnostic [skip ci]" `
+            -f content=$b64 `
+            -f branch="main_private"
+        }
