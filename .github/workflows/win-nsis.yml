@@ -15,50 +15,31 @@ jobs:
   release:
     if: ${{ contains(github.event.head_commit.message, '[private release]') }}
     runs-on: windows-2022
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Record private release start
-        shell: pwsh
-        run: |
-          $payload = [ordered]@{
-            status = "running"
-            runId = "${{ github.run_id }}"
-            runNumber = "${{ github.run_number }}"
-            sourceSha = "${{ github.sha }}"
-            workflow = "${{ github.workflow }}"
-            releaseTag = "private-v5.3.0-win10plus"
-            updatedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
-          } | ConvertTo-Json
-          $payload | Set-Content -Path PRIVATE_RELEASE_STATUS.json -Encoding utf8
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add PRIVATE_RELEASE_STATUS.json
-          git commit -m "ci: record private Windows release running [skip ci]"
-          git push origin HEAD:main_private
 
       - name: Use Node.js 24.x
         uses: actions/setup-node@v4
         with:
           node-version: 24.x
 
-      - name: Set up Python
+      - name: Set up Python 3.7
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.7'
           architecture: 'x64'
 
-      - name: Install build dependencies
-        shell: pwsh
-        run: |
-          npm config set legacy-peer-deps true
-          npm install -g node-gyp yarn
-          npm uninstall node-pty serialport
-          npm install
-          npm install -S -E node-pty@1.1.0-beta14
-          npm install -S -E serialport@13.0.0
+      # Keep the dependency/bootstrap sequence aligned with upstream's
+      # currently working Windows NSIS workflow.
+      - run: npm config set legacy-peer-deps true
+      - run: npm install -g node-gyp
+      - run: npm install -g yarn
+      - run: npm uninstall node-pty serialport
+      - run: npm install
+      - run: npm install -S -E node-pty@1.1.0-beta14
+      - run: npm install -S -E serialport@13.0.0
 
       - name: Build application assets
         run: npm run b
@@ -68,9 +49,10 @@ jobs:
 
       - name: Build Windows 10+ x64 NSIS installer
         env:
+          GH_TOKEN: ${{ github.token }}
           BUILD_NUMBER: ${{ github.run_number }}
           WORKFLOW_NAME: private-windows
-        run: node build/bin/build-win-nsis.js
+        run: node build/bin/build-win-nsis
 
       - name: Upload Windows installer artifact
         uses: actions/upload-artifact@v4
@@ -116,9 +98,11 @@ jobs:
 
           $releaseTags = gh release list --limit 100 --json tagName --jq ".[].tagName"
           $releaseExists = $releaseTags | Where-Object { $_ -eq $env:RELEASE_TAG }
+
           if ($releaseExists) {
             gh release upload $env:RELEASE_TAG $asset.FullName --clobber
             gh release edit $env:RELEASE_TAG `
+              --target "${{ github.sha }}" `
               --title "electerm $env:APP_VERSION Private - Windows 10+ x64" `
               --notes-file release-notes.md `
               --prerelease
@@ -128,36 +112,4 @@ jobs:
               --title "electerm $env:APP_VERSION Private - Windows 10+ x64" `
               --notes-file release-notes.md `
               --prerelease
-          }
-
-          $legacyPrefix = "private-v$env:APP_VERSION-win10plus-r"
-          $legacyTags = $releaseTags | Where-Object { $_.StartsWith($legacyPrefix) }
-          foreach ($legacyTag in $legacyTags) {
-            gh release delete $legacyTag --yes --cleanup-tag
-          }
-
-      - name: Record private release status
-        if: always()
-        shell: pwsh
-        run: |
-          $status = "${{ job.status }}"
-          $payload = [ordered]@{
-            status = $status
-            runId = "${{ github.run_id }}"
-            runNumber = "${{ github.run_number }}"
-            sourceSha = "${{ github.sha }}"
-            workflow = "${{ github.workflow }}"
-            releaseTag = "private-v5.3.0-win10plus"
-            updatedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
-          } | ConvertTo-Json
-          $payload | Set-Content -Path PRIVATE_RELEASE_STATUS.json -Encoding utf8
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add PRIVATE_RELEASE_STATUS.json
-          git commit -m "ci: record private Windows release $status [skip ci]"
-          if ($LASTEXITCODE -eq 0) {
-            git fetch origin main_private
-            git rebase origin/main_private
-            git push origin HEAD:main_private
           }
