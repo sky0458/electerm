@@ -5,9 +5,11 @@
 # trigger file on main_private builds and publishes the prerelease.
 #
 # Release publishing uses PRIVATE_RELEASE_TOKEN instead of GITHUB_TOKEN because
-# GitHub returns HTTP 403 for release creation with the workflow integration
-# token in this fork. PRIVATE_RELEASE_TOKEN should be a fine-grained PAT scoped
-# only to this repository with Contents: Read and write permission.
+# this branch changes files under .github/workflows relative to the default
+# branch. GitHub requires a separately authorized token for Release creation in
+# that case. PRIVATE_RELEASE_TOKEN should be a fine-grained PAT scoped only to
+# this repository with BOTH Contents: Read and write and Workflows: Read and
+# write permissions.
 
 name: main-private-win-nsis
 
@@ -36,7 +38,7 @@ jobs:
           PRIVATE_RELEASE_TOKEN: ${{ secrets.PRIVATE_RELEASE_TOKEN }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:PRIVATE_RELEASE_TOKEN)) {
-            throw 'Missing Actions secret PRIVATE_RELEASE_TOKEN. Add a fine-grained PAT for this repository with Contents: Read and write permission.'
+            throw 'Missing Actions secret PRIVATE_RELEASE_TOKEN. Add a fine-grained PAT scoped to this repository with Contents: Read and write AND Workflows: Read and write permissions.'
           }
           Write-Host 'PRIVATE_RELEASE_TOKEN is configured.'
 
