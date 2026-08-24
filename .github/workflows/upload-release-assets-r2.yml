@@ -6,6 +6,7 @@ on:
     branches: [ r2 ]
 jobs:
   upload-to-r2:
+    if: ${{ github.event_name != 'release' || !startsWith(github.event.release.tag_name, 'private-') }}
     runs-on: ubuntu-latest
     environment: build
     steps:
