@@ -1,7 +1,6 @@
 # Private branch Windows release workflow.
-# The build sequence follows upstream Windows NSIS packaging, but publishing is
-# explicitly disabled inside electron-builder so this fork never targets the
-# upstream electerm/electerm repository by package metadata.
+# Build the Windows NSIS package from main_private, never through the upstream
+# GitHub publisher. The current package.json/postinstall owns native rebuilds.
 
 name: main-private-win-nsis
 
@@ -39,10 +38,10 @@ jobs:
           -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
     - id: node
-      name: Use Node.js 24.x
+      name: Use Node.js 24.15.0
       uses: actions/setup-node@v4
       with:
-        node-version: 24.x
+        node-version: '24.15.0'
 
     - id: python
       name: Use Python 3.11 x64
@@ -52,25 +51,16 @@ jobs:
         architecture: 'x64'
 
     - id: npm_config
+      name: Configure npm
       run: npm config set legacy-peer-deps true
 
-    - id: node_gyp
-      run: npm install -g node-gyp@12.2.0
-
     - id: yarn
+      name: Install Yarn required by package preparation
       run: npm install -g yarn
 
-    - id: uninstall_native
-      run: npm un node-pty serialport
-
     - id: npm_install
+      name: Install project dependencies and rebuild native modules
       run: npm i
-
-    - id: node_pty
-      run: npm i -S -E node-pty@1.1.0-beta14
-
-    - id: serialport
-      run: npm i -S -E serialport@13.0.0
 
     - id: assets
       name: Build application assets
@@ -129,7 +119,7 @@ jobs:
         GH_TOKEN: ${{ github.token }}
       run: |
         $state = if ("${{ job.status }}" -eq "success") { "success" } else { "failure" }
-        $desc = "py=${{ steps.python.outcome }} npm=${{ steps.npm_install.outcome }} assets=${{ steps.assets.outcome }} pb=${{ steps.pb.outcome }} pkg=${{ steps.package.outcome }} rel=${{ steps.release.outcome }}"
+        $desc = "node=${{ steps.node.outcome }} py=${{ steps.python.outcome }} npm=${{ steps.npm_install.outcome }} assets=${{ steps.assets.outcome }} pb=${{ steps.pb.outcome }} pkg=${{ steps.package.outcome }} rel=${{ steps.release.outcome }}"
         gh api --method POST "repos/${{ github.repository }}/statuses/${{ github.sha }}" `
           -f state=$state `
           -f context="main-private-win-nsis" `
@@ -151,12 +141,8 @@ jobs:
           node = "${{ steps.node.outcome }}"
           python = "${{ steps.python.outcome }}"
           npmConfig = "${{ steps.npm_config.outcome }}"
-          nodeGyp = "${{ steps.node_gyp.outcome }}"
           yarn = "${{ steps.yarn.outcome }}"
-          uninstallNative = "${{ steps.uninstall_native.outcome }}"
           npmInstall = "${{ steps.npm_install.outcome }}"
-          nodePty = "${{ steps.node_pty.outcome }}"
-          serialport = "${{ steps.serialport.outcome }}"
           assets = "${{ steps.assets.outcome }}"
           pb = "${{ steps.pb.outcome }}"
           package = "${{ steps.package.outcome }}"
