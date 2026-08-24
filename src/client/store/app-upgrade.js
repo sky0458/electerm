@@ -2,12 +2,12 @@
  * app upgrade
  */
 
-import { refsStatic } from '../components/common/ref'
-
 export default Store => {
-  Store.prototype.onCheckUpdate = (isManual = false) => {
-    refsStatic.get('upgrade')?.appUpdateCheck(isManual)
-  }
+  // Version update detection is intentionally disabled in this build. Keep the
+  // method as a no-op so legacy UI entry points cannot trigger release checks
+  // or outbound version-query requests.
+  Store.prototype.onCheckUpdate = () => {}
+
   Store.prototype.getProxySetting = function () {
     const {
       proxy,
