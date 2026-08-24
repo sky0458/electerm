@@ -13,6 +13,10 @@ permissions:
   contents: write
   statuses: write
 
+concurrency:
+  group: main-private-win-nsis
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-2022
@@ -21,6 +25,18 @@ jobs:
     steps:
     - id: checkout
       uses: actions/checkout@v4
+
+    - name: Publish pending diagnostic status
+      continue-on-error: true
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh api --method POST "repos/${{ github.repository }}/statuses/${{ github.sha }}" `
+          -f state="pending" `
+          -f context="main-private-win-nsis" `
+          -f description="Windows private release started" `
+          -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
     - id: node
       name: Use Node.js 24.x
