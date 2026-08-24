@@ -6,7 +6,8 @@ on:
 
 jobs:
   smoke:
-    name: Windows runner smoke test
+    name: Checkout action smoke test
     runs-on: windows-2022
     steps:
-      - run: echo "windows-runner-started"
+      - uses: actions/checkout@v4
+      - run: echo "checkout-action-started"
