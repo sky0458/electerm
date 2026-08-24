@@ -4,10 +4,34 @@
 
 import fetch from '../../common/fetch-from-server'
 
+const authenticationFailurePatterns = [
+  /all configured authentication methods failed/i,
+  /authentication failed/i,
+  /permission denied/i,
+  /too many authentication failures/i,
+  /no authentication methods available/i
+]
+
+function isAuthenticationFailure (err) {
+  const message = typeof err === 'string' ? err : err?.message
+  return authenticationFailurePatterns.some(pattern => pattern.test(message || ''))
+}
+
 export function createTerm (body) {
   return fetch({
     body,
     action: 'create-terminal'
+  }).catch(err => {
+    // Only mark failures that happen during an automatic reconnect. Initial
+    // connection failures must remain manually retryable regardless of this
+    // setting.
+    if (body?.autoReConnect && isAuthenticationFailure(err)) {
+      window.store.autoReconnectAuthenticationFailures ??= new Map()
+      window.store.autoReconnectAuthenticationFailures.set(body.tabId, {
+        message: err.message || String(err)
+      })
+    }
+    throw err
   })
 }
 
