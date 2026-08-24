@@ -51,22 +51,26 @@ jobs:
           npm config set legacy-peer-deps true
           npm install -g yarn
 
-      - name: Install project dependencies
+      - id: npm_install
+        name: Install project dependencies
         shell: pwsh
         working-directory: source
         run: npm i
 
-      - name: Build application assets
+      - id: assets
+        name: Build application assets
         shell: pwsh
         working-directory: source
         run: npm run b
 
-      - name: Prepare electron-builder config
+      - id: pb
+        name: Prepare electron-builder config
         shell: pwsh
         working-directory: source
         run: npm run pb
 
-      - name: Build Windows x64 NSIS installer
+      - id: package
+        name: Build Windows x64 NSIS installer
         shell: pwsh
         working-directory: source
         env:
@@ -80,7 +84,8 @@ jobs:
           }
           Write-Host "Built installer: $($asset.FullName)"
 
-      - name: Publish Windows-only prerelease
+      - id: release
+        name: Publish Windows-only prerelease
         if: ${{ github.event_name == 'push' }}
         shell: pwsh
         working-directory: source
@@ -101,3 +106,44 @@ jobs:
             --title "electerm $version Private - Windows 10+ x64" `
             --notes "Windows-only private build from main_private. Includes enterprise SSH/SFTP safety changes and disabled application update checks." `
             --prerelease
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Persist push diagnostic snapshot
+        if: ${{ always() && github.event_name == 'push' }}
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $payload = [ordered]@{
+            status = "${{ job.status }}"
+            runId = "${{ github.run_id }}"
+            runNumber = "${{ github.run_number }}"
+            sourceSha = "${{ github.sha }}"
+            npmInstall = "${{ steps.npm_install.outcome }}"
+            assets = "${{ steps.assets.outcome }}"
+            pb = "${{ steps.pb.outcome }}"
+            package = "${{ steps.package.outcome }}"
+            release = "${{ steps.release.outcome }}"
+            updatedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
+          } | ConvertTo-Json
+
+          $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
+          $b64 = [Convert]::ToBase64String($bytes)
+          $path = 'PRIVATE_RELEASE_DIAGNOSTIC.json'
+          $sha = gh api "repos/${{ github.repository }}/contents/$path?ref=main_private" --jq '.sha' 2>$null
+          if ($LASTEXITCODE -eq 0 -and $sha) {
+            gh api --method PUT "repos/${{ github.repository }}/contents/$path" `
+              -f message='ci: record private Windows release diagnostic [skip ci]' `
+              -f content=$b64 `
+              -f branch='main_private' `
+              -f sha=$sha
+          } else {
+            gh api --method PUT "repos/${{ github.repository }}/contents/$path" `
+              -f message='ci: record private Windows release diagnostic [skip ci]' `
+              -f content=$b64 `
+              -f branch='main_private'
+          }
