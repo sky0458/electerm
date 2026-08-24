@@ -1,169 +1,103 @@
-# Private branch Windows release workflow.
-# Build the Windows NSIS package from main_private, never through the upstream
-# GitHub publisher. The current package.json/postinstall owns native rebuilds.
+# Windows-only private release pipeline for main_private.
+# A pull request into main_private runs only the build job for diagnostics.
+# A marked push to main_private runs build + private GitHub prerelease.
 
 name: main-private-win-nsis
 
 on:
   push:
     branches: [ main_private ]
-
-permissions:
-  contents: write
-  statuses: write
+  pull_request:
+    branches: [ main_private ]
 
 concurrency:
-  group: main-private-win-nsis
+  group: main-private-win-nsis-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
+    name: Build Windows NSIS
     runs-on: windows-2022
-    if: ${{ contains(github.event.head_commit.message, '[private release]') && !contains(github.event.head_commit.message, '[skip build]') && !contains(github.event.head_commit.message, '[skip ci]') && !contains(github.event.head_commit.message, '[skip win]') && !contains(github.event.head_commit.message, '[skip nsis]') }}
+    permissions:
+      contents: read
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[private release]') && !contains(github.event.head_commit.message, '[skip build]') && !contains(github.event.head_commit.message, '[skip ci]') && !contains(github.event.head_commit.message, '[skip win]') && !contains(github.event.head_commit.message, '[skip nsis]')) }}
 
     steps:
-    - id: checkout
-      uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Publish pending diagnostic status
-      continue-on-error: true
-      shell: pwsh
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        gh api --method POST "repos/${{ github.repository }}/statuses/${{ github.sha }}" `
-          -f state="pending" `
-          -f context="main-private-win-nsis" `
-          -f description="Windows private release started" `
-          -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
 
-    - id: node
-      name: Use Node.js 24.15.0
-      uses: actions/setup-node@v4
-      with:
-        node-version: '24.15.0'
+      - name: Use Python 3.11 x64
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: 'x64'
 
-    - id: python
-      name: Use Python 3.11 x64
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        architecture: 'x64'
+      - name: Configure npm
+        run: npm config set legacy-peer-deps true
 
-    - id: npm_config
-      name: Configure npm
-      run: npm config set legacy-peer-deps true
+      - name: Install Yarn required by package preparation
+        run: npm install -g yarn
 
-    - id: yarn
-      name: Install Yarn required by package preparation
-      run: npm install -g yarn
+      - name: Install project dependencies
+        run: npm i
 
-    - id: npm_install
-      name: Install project dependencies and rebuild native modules
-      run: npm i
+      - name: Build application assets
+        run: npm run b
 
-    - id: assets
-      name: Build application assets
-      run: npm run b
+      - name: Prepare electron-builder config
+        run: npm run pb
 
-    - id: pb
-      name: Prepare electron-builder config
-      run: npm run pb
+      - name: Build Windows x64 NSIS installer
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          WORKFLOW_NAME: private-windows
+        run: node build/bin/build-win-nsis-private
 
-    - id: package
-      name: Build Windows x64 NSIS installer without publisher
-      env:
-        BUILD_NUMBER: ${{ github.run_number }}
-        WORKFLOW_NAME: private-windows
-      run: node build/bin/build-win-nsis-private
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: electerm-private-windows-x64
+          path: dist/*win-x64-installer.exe
+          if-no-files-found: error
 
-    - id: artifact
-      name: Upload Windows installer artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: electerm-private-windows-x64-${{ github.run_number }}
-        path: dist/*win-x64-installer.exe
-        if-no-files-found: error
+  release:
+    name: Publish Private Release
+    needs: build
+    if: ${{ github.event_name == 'push' }}
+    runs-on: windows-2022
+    permissions:
+      contents: write
 
-    - id: release
-      name: Publish private Windows release
-      shell: pwsh
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-        $version = $pkg.version
-        $tag = "private-v$version-win10plus-r${{ github.run_number }}"
-        $asset = Get-ChildItem -Path dist -Filter "*win-x64-installer.exe" | Select-Object -First 1
+    steps:
+      - uses: actions/checkout@v4
 
-        if (-not $asset) {
-          throw "Windows x64 NSIS installer not found in dist/"
-        }
+      - name: Download Windows installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: electerm-private-windows-x64
+          path: release-assets
 
-        gh release create $tag $asset.FullName `
-          --repo "${{ github.repository }}" `
-          --target "${{ github.sha }}" `
-          --title "electerm $version Private - Windows 10+ x64" `
-          --notes "Windows-only private build from main_private. Includes the enterprise SSH/SFTP safety changes and disabled application update checks." `
-          --prerelease
+      - name: Publish Windows-only prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $version = $pkg.version
+          $tag = "private-v$version-win10plus-r${{ github.run_number }}"
+          $asset = Get-ChildItem -Path release-assets -Filter "*win-x64-installer.exe" | Select-Object -First 1
 
-        if ($LASTEXITCODE -ne 0) {
-          exit $LASTEXITCODE
-        }
+          if (-not $asset) {
+            throw "Windows x64 NSIS installer not found in downloaded artifact"
+          }
 
-    - name: Publish diagnostic commit status
-      if: always()
-      continue-on-error: true
-      shell: pwsh
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        $state = if ("${{ job.status }}" -eq "success") { "success" } else { "failure" }
-        $desc = "node=${{ steps.node.outcome }} py=${{ steps.python.outcome }} npm=${{ steps.npm_install.outcome }} assets=${{ steps.assets.outcome }} pb=${{ steps.pb.outcome }} pkg=${{ steps.package.outcome }} rel=${{ steps.release.outcome }}"
-        gh api --method POST "repos/${{ github.repository }}/statuses/${{ github.sha }}" `
-          -f state=$state `
-          -f context="main-private-win-nsis" `
-          -f description=$desc `
-          -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
-    - name: Persist diagnostic snapshot
-      if: always()
-      continue-on-error: true
-      shell: pwsh
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        $payload = [ordered]@{
-          status = "${{ job.status }}"
-          runId = "${{ github.run_id }}"
-          runNumber = "${{ github.run_number }}"
-          sourceSha = "${{ github.sha }}"
-          node = "${{ steps.node.outcome }}"
-          python = "${{ steps.python.outcome }}"
-          npmConfig = "${{ steps.npm_config.outcome }}"
-          yarn = "${{ steps.yarn.outcome }}"
-          npmInstall = "${{ steps.npm_install.outcome }}"
-          assets = "${{ steps.assets.outcome }}"
-          pb = "${{ steps.pb.outcome }}"
-          package = "${{ steps.package.outcome }}"
-          artifact = "${{ steps.artifact.outcome }}"
-          release = "${{ steps.release.outcome }}"
-          updatedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
-        } | ConvertTo-Json
-
-        $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
-        $b64 = [Convert]::ToBase64String($bytes)
-        $path = "PRIVATE_RELEASE_DIAGNOSTIC.json"
-        $sha = gh api "repos/${{ github.repository }}/contents/$path?ref=main_private" --jq '.sha' 2>$null
-        if ($LASTEXITCODE -eq 0 -and $sha) {
-          gh api --method PUT "repos/${{ github.repository }}/contents/$path" `
-            -f message="ci: record private Windows diagnostic [skip ci]" `
-            -f content=$b64 `
-            -f branch="main_private" `
-            -f sha=$sha
-        } else {
-          gh api --method PUT "repos/${{ github.repository }}/contents/$path" `
-            -f message="ci: record private Windows diagnostic [skip ci]" `
-            -f content=$b64 `
-            -f branch="main_private"
-        }
+          gh release create $tag $asset.FullName `
+            --repo "${{ github.repository }}" `
+            --target "${{ github.sha }}" `
+            --title "electerm $version Private - Windows 10+ x64" `
+            --notes "Windows-only private build from main_private. Includes enterprise SSH/SFTP safety changes and disabled application update checks." `
+            --prerelease
