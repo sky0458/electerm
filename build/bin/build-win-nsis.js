@@ -9,15 +9,15 @@ const {
 
 async function main () {
   const pb = builder
-  echo('running build for Windows 10+ x64 NSIS installer')
+  echo('running build for win part nsis installer')
 
   patchNsisKeepShortcuts()
 
-  echo('build Windows x64 nsis')
+  echo('build nsis')
   const src = 'win-x64-installer.exe'
   rm('-rf', 'dist')
   writeSrc(src)
-  await run(`${pb} --win nsis --x64`)
+  await run(`${pb} --win nsis`)
   await uploadToR2(src)
 }
 
