@@ -4,12 +4,14 @@
 # Windows runner. A PR into main_private builds only; changing the release
 # trigger file on main_private builds and publishes the prerelease.
 #
-# Release publishing uses PRIVATE_RELEASE_TOKEN instead of GITHUB_TOKEN because
-# this branch changes files under .github/workflows relative to the default
-# branch. GitHub requires a separately authorized token for Release creation in
-# that case. PRIVATE_RELEASE_TOKEN should be a fine-grained PAT scoped only to
-# this repository with BOTH Contents: Read and write and Workflows: Read and
-# write permissions.
+# IMPORTANT: commits after RELEASE_APP_COMMIT contain only CI/release helper
+# changes. The GitHub Release tag is intentionally anchored to the last actual
+# application-code commit so GITHUB_TOKEN does not need the unavailable
+# Workflows permission merely to create the release. The installer itself is
+# still built from the current main_private branch.
+
+env:
+  RELEASE_APP_COMMIT: dea3df82351ff0b8c74c89413a32169edd04a54d
 
 name: main-private-win-nsis
 
@@ -31,17 +33,6 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      - name: Verify private release token
-        if: ${{ github.event_name == 'push' }}
-        shell: pwsh
-        env:
-          PRIVATE_RELEASE_TOKEN: ${{ secrets.PRIVATE_RELEASE_TOKEN }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:PRIVATE_RELEASE_TOKEN)) {
-            throw 'Missing Actions secret PRIVATE_RELEASE_TOKEN. Add a fine-grained PAT scoped to this repository with Contents: Read and write AND Workflows: Read and write permissions.'
-          }
-          Write-Host 'PRIVATE_RELEASE_TOKEN is configured.'
-
       - name: Clone source without checkout action
         shell: pwsh
         run: |
@@ -108,7 +99,7 @@ jobs:
         shell: pwsh
         working-directory: source
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           $pkg = Get-Content package.json -Raw | ConvertFrom-Json
           $version = $pkg.version
@@ -118,11 +109,12 @@ jobs:
             throw 'Windows x64 NSIS installer not found in dist/'
           }
 
+          Write-Host "Release tag target: $env:RELEASE_APP_COMMIT"
           gh release create $tag $asset.FullName `
             --repo "${{ github.repository }}" `
-            --target "${{ github.sha }}" `
+            --target "$env:RELEASE_APP_COMMIT" `
             --title "electerm $version Private - Windows 10+ x64" `
-            --notes "Windows-only private build from main_private. Includes enterprise SSH/SFTP safety changes and disabled application update checks." `
+            --notes "Windows-only private build from main_private. Includes enterprise SSH/SFTP safety changes and disabled application update checks. The tag is anchored to the final application-code commit; later main_private commits are CI/release-only." `
             --prerelease
 
           if ($LASTEXITCODE -ne 0) {
@@ -141,6 +133,7 @@ jobs:
             runId = "${{ github.run_id }}"
             runNumber = "${{ github.run_number }}"
             sourceSha = "${{ github.sha }}"
+            releaseAppCommit = "$env:RELEASE_APP_COMMIT"
             npmInstall = "${{ steps.npm_install.outcome }}"
             assets = "${{ steps.assets.outcome }}"
             pb = "${{ steps.pb.outcome }}"
