@@ -1,0 +1,12 @@
+{
+  "status": "failure",
+  "runId": "32730150784",
+  "runNumber": "27",
+  "sourceSha": "5ca90cd52e7d3159934052dba2f30ab511844b11",
+  "npmInstall": "success",
+  "assets": "success",
+  "pb": "success",
+  "package": "success",
+  "release": "failure",
+  "updatedAtUtc": "2026-08-24T13:04:16.6779727Z"
+}
