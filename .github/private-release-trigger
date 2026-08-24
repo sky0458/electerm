@@ -1,3 +1,4 @@
 main_private Windows private release trigger
 source workflow: .github/workflows/main-private-win-nsis.yml
-triggered: 2026-08-24T20:18:00+08:00
+diagnostic mode: contents-api snapshot enabled
+sequence: 2
