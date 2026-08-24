@@ -574,9 +574,18 @@ export default class SettingTerminal extends Component {
             'ctrlOrMetaOpenTerminalLink',
             'sftpPathFollowSsh',
             'sshSftpSplitView',
-            'showCmdSuggestions',
-            'autoReconnectTerminal'
+            'showCmdSuggestions'
           ].map(d => this.renderToggle(d))
+        }
+        {this.renderToggle('autoReconnectTerminal')}
+        {
+          this.props.config.autoReconnectTerminal
+            ? this.renderToggle(
+                'autoReconnectOnAuthenticationFailure',
+                'pd2b',
+                'Retry after authentication failure'
+              )
+            : null
         }
         <div className='pd1b'>{e('dragDropBehavior')}</div>
         <Select
